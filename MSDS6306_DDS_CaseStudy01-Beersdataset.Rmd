@@ -92,7 +92,7 @@ Brewcount2 = Brewcount[-1] #removed first column from Brew count data state name
 states <- map_data("state") #contains data for states excluding Alaska, Hawaii
 
 #Added Alaska to states as the states data does not include Alaska (Hawaii not in data so did not include in below data)
-Alaska <- read.csv(choose.files(),header = T,sep = ",",na.strings = "NA",
+Alaska <- read.csv("https://raw.githubusercontent.com/VenkataVanga/MSDS-6306/main/Alaska.csv",header = T,sep = ",",na.strings = "NA",
                           fill = TRUE);
 states <- rbind(states,Alaska)
 
@@ -108,21 +108,22 @@ plot <- map.df %>% ggplot(aes(x=long, y=lat, group = group)) +
   ggtitle("Breweries Count by State") + coord_map()
 
 #state center longitude and latitude (read data from csv file)
-st_center <- read.csv(choose.files(),header = T,sep = ",",na.strings = "NA",
+st_center <- read.csv("https://raw.githubusercontent.com/VenkataVanga/MSDS-6306/main/long_lat_statecenter.csv",header = T,sep = ",",na.strings = "NA",
                           fill = TRUE);
 # state names changed to lower case
 st_center$region <- tolower(st_center$region) 
 
-#map.df1 merges state center with Breweris count data
-map.df1 <- merge(st_center,Brewcount2, by="region", all.x=T)
+#map.df1 merges state center with Breweries count data
+map.df1 <- merge(st_center,Brewcount2, by="region", all.x = T)
 
 # Adding state names and Breweries count data by state 
 Nplot <- plot + geom_point(data=map.df1, aes(x=long, y=lat, 
                                              size = Breweries_Count, group = region),
                            show.legend = FALSE) + 
-  geom_text(aes(x=long, y=lat,label=abb,group = region), data = map.df1,vjust=-1.2) +
-  geom_text(aes(x=long, y=lat,label=Breweries_Count,group = region), 
-            data = map.df1,vjust=1.6)
+  geom_text(aes( x= long, y = lat,label = abb.x, group = region), 
+            data = map.df1, vjust=-1.2) +
+  geom_text(aes(x = long, y = lat, label = Breweries_Count, group = region), 
+            data = map.df1,vjust=1.8)
 
 
 #Code below adds scaled legend to the Breweries count by state
