@@ -24,6 +24,11 @@ library(maps)
 library(stringr)
 library(stringi)
 library(mapproj)
+library(RCurl)
+library(readr)
+library(rio)
+
+
 
 ```
 
@@ -31,7 +36,7 @@ library(mapproj)
 #Beer and Breweries data input from CSV files
 ```{r Beer Data}
 # This reads in the Beers data from select folder file Beers.csv.
-Beerdata <- read.csv(choose.files(),header = T,sep = ",",na.strings = "NA",fill = TRUE);
+Beerdata <- read.csv("https://raw.githubusercontent.com/VenkataVanga/MSDS-6306/main/Beers.csv",header = T,sep = ",",na.strings = "NA",fill = TRUE);
 head(Beerdata)
 nrow(Beerdata)
 ```
@@ -51,7 +56,7 @@ Beerdata1 <- Beerdata %>% filter(Beerdata$ABV != "NA")
 Beerdata1$Ounces <- as.factor(Beerdata1$Ounces)
 
 #Summary count of number of ABV values by categorized Ounces of beer
-s <- Beerdata1 %>% group_by(Ounces) %>% summarize(ABV,count=n())
+s <- Beerdata1 %>% group_by(Ounces)%>% summarize(ABV,count=n())
 
 # Bar plot of ABV v. Ounces to see how much data is available
 Beerdata1 %>% ggplot(aes(x = Ounces, y = s$count[1], fill=Ounces)) + geom_col() +
