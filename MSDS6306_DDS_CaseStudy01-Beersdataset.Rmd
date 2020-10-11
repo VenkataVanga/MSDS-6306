@@ -1,0 +1,134 @@
+---
+title: "MSDS 6306: Doing Data Science - Case Study 01 - Beers/Breweries Dataset"
+author: "Renfeng Wang & Venkata 'MG' Vanga"
+date: "9/30/2020"
+output: html_document
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+require(graphics)
+library(tidyverse)
+library(magrittr)
+library(GGally)
+library(ggthemes)
+library(plotly)
+library(maps)
+library(stringr)
+library(stringi)
+library(mapproj)
+
+```
+
+
+#Beer and Breweries data input from CSV files
+```{r Beer Data}
+# This reads in the Beers data from select folder file Beers.csv.
+Beerdata <- read.csv(choose.files(),header = T,sep = ",",na.strings = "NA",fill = TRUE);
+head(Beerdata)
+nrow(Beerdata)
+```
+
+```{r Brewery Data}
+# This reads in the Beers data from select folder file Breweries.csv.
+Breweriesdata <- read.csv(choose.files(),header = T,sep = ",",na.strings = "NA",
+                          fill = TRUE);
+head(Breweriesdata)
+nrow(Breweriesdata)
+```
+
+# Generating bar plots for Beerdata categorized by number of Ounces used to generate ABV
+```{r Plots}
+#Removing not applicable ABV values
+Beerdata1 <- Beerdata %>% filter(Beerdata$ABV != "NA") 
+Beerdata1$Ounces <- as.factor(Beerdata1$Ounces)
+
+#Summary count of number of ABV values by categorized Ounces of beer
+s <- Beerdata1 %>% group_by(Ounces) %>% summarize(ABV,count=n())
+
+# Bar plot of ABV v. Ounces to see how much data is available
+Beerdata1 %>% ggplot(aes(x = Ounces, y = s$count[1], fill=Ounces)) + geom_col() +
+  ggtitle("Alcohol By Volume (ABV) data count by Ounce Category") +
+  labs(y="Alcohol By Volume (ABV)") + 
+  geom_text(aes(Ounces, s$count+100, label = s$count, fill = NULL), data = s)
+```
+
+#Generating geographic plots from breweries data
+```{r mapdata Breweries}
+#makes a data frame with State name and abbreviation.
+lookup = data.frame(abb = state.abb, State = state.name)
+dc <- c("DC", "District of Columbia")
+lookup <- rbind(lookup,dc)
+# Change Column Name State to abb (abbreviation)
+colnames(Breweriesdata)[4] = "abb" 
+
+# Removes left space in state abb data taken from Breweries CSV
+Breweriesdata$abb <- trimws(Breweriesdata$abb,which = c("left"))  
+
+# make one dataset with state names and abb
+Brewdata <- merge(Breweriesdata,lookup,"abb") 
+
+Brewcount <- count(Brewdata,State,abb) #count up the occurrence of each state
+
+colnames(Brewcount)[3] = "Breweries_Count" #change "n" to "Breweries_Count"
+
+# added state name also changed to lower case
+Brewcount$region <- tolower(Brewcount$State) 
+
+Brewcount2 = Brewcount[-1] #removed first column from Brew count data state name 
+
+states <- map_data("state") #contains data for states excluding Alaska, Hawaii
+
+#Added Alaska to states as the states data does not include Alaska (Hawaii not in data so did not include in below data)
+Alaska <- read.csv(choose.files(),header = T,sep = ",",na.strings = "NA",
+                          fill = TRUE);
+states <- rbind(states,Alaska)
+
+#map.df is data frame containing longitude and latitude to form state and breweries count by state
+map.df <- merge(states,Brewcount2, by="region", all.x=T)
+map.df <- map.df[order(map.df$order),]
+
+#Breweries count by state using gradient graphics
+plot <- map.df %>% ggplot(aes(x=long, y=lat, group = group)) +
+  geom_polygon(aes(fill = Breweries_Count)) +  geom_path() + 
+  scale_fill_gradientn(colours=rev(topo.colors(10)),na.value="grey90",
+                       breaks=c(0,5,10,15,20,25,30,35,40,45,50))+
+  ggtitle("Breweries Count by State") + coord_map()
+
+#state center longitude and latitude (read data from csv file)
+st_center <- read.csv(choose.files(),header = T,sep = ",",na.strings = "NA",
+                          fill = TRUE);
+# state names changed to lower case
+st_center$region <- tolower(st_center$region) 
+
+#map.df1 merges state center with Breweris count data
+map.df1 <- merge(st_center,Brewcount2, by="region", all.x=T)
+
+# Adding state names and Breweries count data by state 
+Nplot <- plot + geom_point(data=map.df1, aes(x=long, y=lat, 
+                                             size = Breweries_Count, group = region),
+                           show.legend = FALSE) + 
+  geom_text(aes(x=long, y=lat,label=abb,group = region), data = map.df1,vjust=-1.2) +
+  geom_text(aes(x=long, y=lat,label=Breweries_Count,group = region), 
+            data = map.df1,vjust=1.6)
+
+
+#Code below adds scaled legend to the Breweries count by state
+cplot <- Nplot + theme(legend.background = element_rect(fill="gray90", size=10, linetype="dotted"),legend.key.height = unit(4,"lines"))
+
+#final plot with state names and Breweries count by state
+cplot
+
+```
+#Merging beer data and breweries data
+```{r merging beer and breweries data}
+
+
+```
