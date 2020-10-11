@@ -43,7 +43,7 @@ nrow(Beerdata)
 
 ```{r Brewery Data}
 # This reads in the Beers data from select folder file Breweries.csv.
-Breweriesdata <- read.csv(choose.files(),header = T,sep = ",",na.strings = "NA",
+Breweriesdata <- read.csv("https://raw.githubusercontent.com/VenkataVanga/MSDS-6306/main/Breweries.csv",header = T,sep = ",",na.strings = "NA",
                           fill = TRUE);
 head(Breweriesdata)
 nrow(Breweriesdata)
