@@ -34,6 +34,11 @@ library(rio)
 library(naniar)
 library(scales)
 library(grid)
+library(mice)
+library(class)
+library(caret)
+library(e1071)
+library(datasets)
 ```
 
 
@@ -59,22 +64,6 @@ head(Breweriesdata)
 #Number of rows in Breweries data
 ```{r number of breweries data}
 nrow(Breweriesdata)
-```
-
-# Generating bar plots for Beerdata categorized by number of Ounces used to generate ABV
-```{r Plots}
-#Removing not applicable ABV values
-Beerdata1 <- Beerdata %>% filter(Beerdata$ABV != "NA") 
-Beerdata1$Ounces <- as.factor(Beerdata1$Ounces)
-
-#Summary count of number of ABV values by categorized Ounces of beer
-s <- Beerdata1 %>% group_by(Ounces)%>% summarize(ABV,count=n())
-
-# Bar plot of ABV v. Ounces to see how much data is available
-Beerdata1 %>% ggplot(aes(x = Ounces, y = s$count[1], fill=Ounces)) + geom_col() +
-  ggtitle("Alcohol By Volume (ABV) data count by Ounce Category") +
-  labs(y="Alcohol By Volume (ABV)") + 
-  geom_text(aes(Ounces, s$count+100, label = s$count, fill = NULL), data = s)
 ```
 
 #Generating geographic plots from breweries data (following chunk generate the final plot)
@@ -155,10 +144,11 @@ The final plot shows that 'Colorado' has the highest (47)number of breweries fol
 #Merging beer data and breweries data
 ```{r merging beer and breweries data}
 colnames(Beerdata)[5] = "Brew_ID" #Changing columun name to combine both beer data and breweries data
-Totaldata <- merge(Beerdata,Breweriesdata, by="Brew_ID", all.x = T)
+Totaldata <- merge(Beerdata,Breweriesdata, by="Brew_ID", all.x = T) %>% na_if("")
 colnames(Totaldata)[2] = "Beer_Name" #Changing the column name to Beer name
 colnames(Totaldata)[8] = "Brewery_Name" # Changing the column name to Brewery name
 colnames(Totaldata)[10] = "State" # Changing the column name back to State
+
 ```
 
 #First 6 observations after merging beer data and breweries data
@@ -173,34 +163,10 @@ tail(Totaldata,6)
 
 #Missing Values in ABV/IBU columns
 ```{r Missing Values in ABV/IBU columns}
-table(is.na(Totaldata$ABV))# True value represents NA values in the column ABV in original data
-table(is.na(Totaldata$IBU))# True value represents NA values in the column IBU in original data
-gg_miss_var(Totaldata)+ ggtitle("Missing data values by Category")
-```
-
-Graph and the values in table above provide the missing data values in ABV (65) and IBU (1005) columns from originally considered beer data.
-
-#Median for ABV and IBU content for each state (final plot given in below chunk)
-```{r Median ABV and IBU content for each state}
-#Evaluating median of ABV and IBU (all NA values removed from data)
-Median_ABV_IBU <- Totaldata %>% arrange(State) %>% group_by(State) %>% 
-  summarize(Median_ABV = median(ABV, na.rm = TRUE), Median_IBU = median(IBU,na.rm = TRUE))
-Median_ABV_IBU <- data.frame(Median_ABV_IBU)
-
-#Bar plot for median of ABV content for each state (This plot is added to IBU med plot below)
-ABV_Medplot <- Median_ABV_IBU %>% ggplot() + 
-  geom_bar(aes(x = State, y = Median_ABV, fill = State),group = Median_ABV_IBU$State, 
-           width = 0.3, stat = 'identity', show.legend = FALSE)
-
-#Bar plot for median of IBU content for each state (added to median of ABV plot)
-ABV_IBU_Medplot <- ABV_Medplot + geom_bar(aes(x = as.numeric(factor(State)) + 0.4, 
-                                              y = Median_IBU/1000),stat = 'identity',width = 0.3)
-#Median IBU scaled down by 100 in order to set same y axis scale for ABV and IBU.
-#Adding secondary y axis to the plot
-ABV_IBU_Medplot1 <- ABV_IBU_Medplot + 
-  scale_y_continuous(limits= c(0,0.072), labels = percent, name = "Alcohol By Volume (ABV) [%]", 
-                      sec.axis = sec_axis(~.*1000,name = "International Bitterness Unit (IBU)")) +
-  ggtitle('Median ABV and IBU Content by State') + theme(
+table(is.na(Totaldata$ABV)) # True value represents NA values in the column ABV in original data
+table(is.na(Totaldata$IBU)) # True value represents NA values in the column IBU in original data
+table(is.na(Totaldata$Style)) # True value represents NA values in the column Style in original data
+gg_miss_var(Totaldata)+ ggtitle("Missing data values by Category")+scale_y_log10() + theme(
 # AXIS LABLES APPEARANCE
 plot.title = element_text(size=14, face= "bold", colour= "black" ),
 axis.title.x = element_text(size=12, face="bold", colour = "black"),    
@@ -210,21 +176,82 @@ axis.text.y = element_text(size=12, face="bold", colour = "black"),
 strip.text.x = element_text(size = 10, face="bold", colour = "black" ),
 strip.text.y = element_text(size = 10, face="bold", colour = "black"),
 )
+```
 
-#Adding text to median values for ABV and IBU
-ABV_IBU_Medplot2 <- ABV_IBU_Medplot1 + geom_text(aes(State, Median_ABV+0.0045, 
-                                                     label = paste("ABV =",percent(Median_ABV, 
-                                                                                   accuracy = 0.001)),
-                                                     fill = NULL),
-                                                 data = Median_ABV_IBU, angle = 90) +
-  geom_text(aes(as.numeric(factor(State)) + 0.4, (Median_IBU/1000)+0.0032, 
-                label = paste("IBU =",Median_IBU), fill = NULL), data = Median_ABV_IBU, angle = 90)
+The plot and the values in tables above provide the missing data values in ABV (65), IBU (1005) and Style (5) columns from originally considered beer data.
+
+
+#Addressing the missing values
+```{r, Addressing missing values}
+#MICE - Multivariate Imputation by Chained Equations method is used to impute the missing variables in ABV and IBU columns
+imp <- mice(Totaldata, method='norm.predict', m=5)
+Totaldata_imp=complete(imp)
+gg_miss_var(Totaldata_imp) # shows only style as missing data
+table(is.na(Totaldata_imp$Style)) # True value represents NA values in the column Style in original data
+Totaldata_imp[c(which(is.na(Totaldata_imp$Style))),]
+#Internet search for all the missing styles above
+Totaldata_imp[227,"Style"] = "English India Pale Ale (IPA)" #"https://irp-cdn.multiscreensite.com/b5112d09/files/uploaded/Beer%20Menu_2up%20%281%29-1.png"
+
+Totaldata_imp[455,"Style"] = "Vienna Lager"  #https://www.craftbeer.com/styles/german-style-marzen-oktoberfest#:~:text=A%20beer%20rich%20in%20malt,similar%20to%20the%20Vienna%20lager.&text=Originating%20in%20Germany%2C%20this%20style,or%20lagered%2C%20throughout%20the%20summer.
+
+Totaldata_imp[946,"Style"] = "Scotch Ale / Wee Heavy"  #based on name
+
+Totaldata_imp[992,"Style"] = "German Pilsener" #https://www.oskarblues.com/beers/
+
+Totaldata_imp[993,"Style"] = "German Pilsener" #https://www.oskarblues.com/beers/
+
+```
+# Generating bar plots for Beerdata categorized by number of Ounces used to generate ABV
+```{r ABV by ounces}
+Totaldata_imp$Ounces <- as.factor(Totaldata_imp$Ounces)
+
+#Summary count of number of ABV values by categorized Ounces of beer
+s <- Totaldata_imp %>% group_by(Ounces)%>% summarize(ABV,count=n())
+
+# Bar plot of ABV v. Ounces to see how much data is available
+Totaldata_imp %>% ggplot(aes(x = Ounces, y = s$count[1], fill=Ounces)) + geom_col() +
+  ggtitle("Alcohol By Volume (ABV) data count by Ounce Category") +
+  labs(y="Alcohol By Volume (ABV)") + 
+  geom_text(aes(Ounces, s$count+50, label = s$count, fill = NULL), data = s)
+```
+
+#Median for ABV and IBU content for each state (final plot given in below chunk)
+```{r Median ABV and IBU content for each state}
+#Evaluating median of ABV and IBU (all NA values removed from data)
+Median_ABV <- Totaldata_imp %>% arrange(State) %>% group_by(State) %>% 
+  summarize(Median_ABV = median(ABV, na.rm = TRUE))
+Median_IBU <- Totaldata_imp %>% arrange(State) %>% group_by(State) %>% 
+  summarize(Median_IBU = median(IBU, na.rm = TRUE))
+Median_ABV <- data.frame(Median_ABV)
+Median_IBU <- data.frame(Median_IBU)
+Median_ABV$Cat <- "Median_ABV"
+Median_IBU$Cat <- "Median_IBU"
+
+
+#Bar plot for Median ABV/IBU content for each state
+Medianplot_ABV_IBU <- Median_ABV %>% ggplot(mapping = aes(x,y)) + 
+  geom_bar(aes(x = State, y = Median_ABV, fill = State), group = Median_ABV$State, 
+                                                   stat = 'identity', show.legend = FALSE) +
+  ggtitle('Median ABV Content by State') + geom_text(aes(State, Median_ABV+0.005, 
+                                                      label = percent(Median_ABV, accuracy = 0.01),
+                                                      fill = NULL), data = Median_ABV, angle = 90) + 
+  geom_bar(data=Median_IBU, aes(x = State, y = Median_IBU, fill = State), stat = 'identity', 
+           show.legend = FALSE) +
+  geom_text(aes(State, Median_IBU+2, label = round(Median_IBU,digits = 0), fill = NULL), data = Median_IBU) +
+  ggtitle('Median ABV and Median IBU Content by State') + facet_grid(Cat~., scale = "free_y",
+                                                              labeller = label_parsed, switch = "y") + labs(x="State") + 
+  theme(axis.title.y = element_blank(), strip.placement = "outside",axis.title.x = element_text(size=12, face="bold", colour = "black"),    
+axis.text.x = element_text(size=12, face="bold", colour = "black"), 
+axis.text.y = element_text(size=12, face="bold", colour = "black"),
+strip.text.x = element_text(size = 10, face="bold", colour = "black" ),
+strip.text.y = element_text(size = 10, face="bold", colour = "black"),
+)
 
 ```
 
 # Median plot for ABV and IBU by state
 ```{r Final Median Plot for ABV and IBU by state,fig.width=30, fig.height=15, dpi = 240}
-ABV_IBU_Medplot2 
+Medianplot_ABV_IBU 
 #plot best viewed in scaled full screen zoom 1920px x 1080px (21" or higher dim screen)
 ```
 
@@ -236,9 +263,9 @@ From the median ABV and median IBU plot above it can be observed that 'District 
 # Maximum ABV and IBU by State
 ```{r maximum ABV and IBU State}
 #collecting max data
-Max_ABV <- Totaldata %>% arrange(State) %>% group_by(State) %>% 
+Max_ABV <- Totaldata_imp %>% arrange(State) %>% group_by(State) %>% 
   summarize(Max_ABV = max(ABV, na.rm=TRUE))
-Max_IBU <- Totaldata %>% arrange(State) %>% group_by(State) %>% 
+Max_IBU <- Totaldata_imp %>% arrange(State) %>% group_by(State) %>% 
   summarize(Max_IBU = max(IBU, na.rm=TRUE))
 
 Max_ABV$Cat <- "Max_ABV"
@@ -253,10 +280,15 @@ Maxplot_ABV_IBU <- Max_ABV %>% ggplot(mapping = aes(x,y)) +
                                                       fill = NULL), data = Max_ABV, angle = 90) + 
   geom_bar(data=Max_IBU, aes(x = State, y = Max_IBU, fill = State), stat = 'identity', 
            show.legend = FALSE) +
-  geom_text(aes(State, Max_IBU+5, label = Max_IBU, fill = NULL), data = Max_IBU) +
+  geom_text(aes(State, Max_IBU+5, label = round(Max_IBU,digits = 0), fill = NULL), data = Max_IBU) +
   ggtitle('Max ABV and Max IBU Content by State') + facet_grid(Cat~., scale = "free_y",
                                                               labeller = label_parsed, switch = "y") + labs(x="State") + 
-  theme(axis.title.y = element_blank(), strip.placement = "outside")
+  theme(axis.title.y = element_blank(), strip.placement = "outside",axis.title.x = element_text(size=12, face="bold", colour = "black"),    
+axis.text.x = element_text(size=12, face="bold", colour = "black"), 
+axis.text.y = element_text(size=12, face="bold", colour = "black"),
+strip.text.x = element_text(size = 10, face="bold", colour = "black" ),
+strip.text.y = element_text(size = 10, face="bold", colour = "black"),
+)
 
 ```
 
@@ -274,18 +306,18 @@ From the Max ABV and IBU plot it is observed that 'Colorado' has the max ABV val
 
 # ABV statistical attributes
 ```{r ABV statistical attributes}
-Stats <- Totaldata %>% summarize(Mean = mean(ABV, na.rm=TRUE),
+Stats <- Totaldata_imp %>% summarize(Mean = mean(ABV, na.rm=TRUE),
                         Median = median(ABV,na.rm=T), Max = max(ABV,na.rm=T), Min = min(ABV,na.rm=T),
                         SD = sd(ABV,na.rm=T), N = n())
 #Histogram and Density Plot
-His_Den <- Totaldata %>% filter(!is.na(ABV)) %>% ggplot(aes(x=ABV)) +
+His_Den <- Totaldata_imp %>% filter(!is.na(ABV)) %>% ggplot(aes(x=ABV)) +
   geom_histogram(aes(y=..density..),colour='red',fill='blue', binwidth = 0.0035) +
   geom_density(alpha=.4, fill='#FFFF00') + 
   ggtitle('ABV Statistical Attributes - Histogram, Density and Box Plots') + 
-  scale_x_continuous(expand = c(0,0), limit = c(0,0.14)) + labs(y="Density / Count")
+  scale_x_continuous(breaks = seq(0,0.14,0.01),labels = seq(0,0.14,0.01)) + labs(y="Density / Count")
 
 #Box plot for ABV data
-Box <- Totaldata %>% filter(!is.na(ABV)) %>% ggplot(aes(x=ABV)) + 
+Box <- Totaldata_imp %>% filter(!is.na(ABV)) %>% ggplot(aes(x=ABV)) + 
   geom_boxplot(col='black',fill='#FF6666') + scale_x_continuous(expand = c(0,0), limit = c(0,0.14)) + scale_y_continuous(expand = c(0,0), limit = c(-0.4,0.4))
 
 #Histogram density plot and Box plot on same scale
@@ -294,16 +326,181 @@ grid.draw(rbind(ggplotGrob(His_Den),
                 size = "first"))
 Stats
 ```
-All statically significant attributes for the ABV values are shown above
-The distribution of ABV is slightly right skewed. ABV of beers around 5% has the highest count. 
+All statistically significant attributes for the ABV values are shown above
+The distribution of ABV is slightly right skewed. 
+ABV values from 4.90% to 5.95% are the most widely used.
+6.5% ABV values show second highest peak from the histogram.
+. 
 There are total 2410 non-missing ABV values in this data set. 
-The maximum ABV is 12.8%, the minimum ABV is .1%, the median ABV is 5.6%.
-The mean ABV is 5.98%, median 5.6% and standard deviation of ABV is 1.35%.
+The maximum ABV is 12.8%, the minimum ABV is .1%.
+The mean ABV is 5.98%, median 5.7% and standard deviation of ABV is 1.34%.
 
 # ABV v. IBU scatter plot
 ```{r ABV v. IBU}
 #Scatter plot with 
-Totaldata %>% filter(!is.na(ABV) & !is.na(IBU)) %>% 
+Totaldata_imp %>% filter(!is.na(ABV) & !is.na(IBU)) %>% 
   ggplot(aes(y=ABV, x=IBU)) + geom_point(aes(colour = ABV/IBU)) + geom_smooth(method=loess) + ggtitle("ABV V. IBU Plot") + scale_y_continuous(labels = percent)
-
 ```
+
+
+The scatter plot indicates there is a moderately positive linear relationship (i.e., as IBU increases ABV increases).
+Most beers with lower IBU (less than 50) have ABV values around 5%.
+When IBU value increases, ABV values spreads out. But most beers with IBU values above 50, their ABV values spread out within the region between 5% and 10%.
+
+# ABV_IBU statistical significance with respect to IPAs and Ale's 
+```{r, ABV-IBU with respect to IPAs and Ale}
+# ABV/ IBU for IPA
+Data_IPA <- Totaldata_imp %>% 
+  filter(str_detect(Style, regex(str_c('\\b','IPA','\\b',sep=''), ignore_case = T)))
+#Stats IPA
+Stats_IPA_ABV <- Data_IPA %>% summarize(Mean = mean(ABV, na.rm=TRUE),
+                        Median = median(ABV,na.rm=T), Max = max(ABV,na.rm=T), Min = min(ABV,na.rm=T),
+                        SD = sd(ABV,na.rm=T), N = n())
+Stats_IPA_IBU <- Data_IPA %>% summarize(Mean = mean(IBU, na.rm=TRUE),
+                        Median = median(IBU,na.rm=T), Max = max(IBU,na.rm=T), Min = min(IBU,na.rm=T),
+                        SD = sd(IBU,na.rm=T), N = n())
+#Histogram and Density Plot for IPA with ABV
+His_Den_IPA_ABV <- Data_IPA %>% ggplot(aes(x=ABV)) +
+  geom_histogram(aes(y=..density..),colour='red',fill='blue', binwidth = 0.0035) +
+  geom_density(alpha=.4, fill='#FFFF00') + 
+  ggtitle('IPA - ABV Statistical Attributes - Histogram, Density') + 
+  scale_x_continuous(breaks = seq(0,0.14,0.01),labels = seq(0,0.14,0.01)) + labs(y="Density / Count")
+#Histogram and Density Plot for IPA with IBU
+His_Den_IPA_IBU <- Data_IPA %>% ggplot(aes(x=IBU)) +
+  geom_histogram(aes(y=..density..),colour='red',fill='pink') +
+  geom_density(alpha=.2, fill='#FFFF00') + 
+  ggtitle('IPA - IBU Statistical Attributes - Histogram, Density') + 
+  scale_x_continuous() + labs(y="Density / Count")
+
+
+#ABV / IBU for Ale
+Data_Ale <- Totaldata_imp %>% 
+  filter(str_detect(Style, regex(str_c('\\b','Ale','\\b',sep=''), ignore_case = T)))
+
+Stats_Ale_ABV <- Data_Ale %>% summarize(Mean = mean(ABV, na.rm=TRUE),
+                        Median = median(ABV,na.rm=T), Max = max(ABV,na.rm=T), Min = min(ABV,na.rm=T),
+                        SD = sd(ABV,na.rm=T), N = n())
+Stats_Ale_IBU <- Data_Ale %>% summarize(Mean = mean(IBU, na.rm=TRUE),
+                        Median = median(IBU,na.rm=T), Max = max(IBU,na.rm=T), Min = min(IBU,na.rm=T),
+                        SD = sd(IBU,na.rm=T), N = n())
+#Histogram and Density Plot for Ale with ABV
+His_Den_Ale_ABV <- Data_Ale %>% ggplot(aes(x=ABV)) +
+  geom_histogram(aes(y=..density..),colour='red',fill='blue', binwidth = 0.0035) +
+  geom_density(alpha=.4, fill='#FFFF00') + 
+  ggtitle('Ale - ABV Statistical Attributes - Histogram, Density') + 
+  scale_x_continuous(breaks = seq(0,0.19,0.01),labels = seq(0,0.19,0.01)) + labs(y="Density / Count")
+#Histogram and Density Plot for Ale with IBU
+His_Den_Ale_IBU <- Data_Ale %>% ggplot(aes(x=IBU)) +
+  geom_histogram(aes(y=..density..),colour='red',fill='pink') +
+  geom_density(alpha=.2, fill='#FFFF00') + 
+  ggtitle('Ale - IBU Statistical Attributes - Histogram, Density') + 
+  scale_x_continuous() + labs(y="Density / Count")
+
+#Fitting all the statistical data in one screen
+require(gridExtra)
+a <- grid.arrange(His_Den_IPA_ABV,His_Den_IPA_IBU,His_Den_Ale_ABV,His_Den_Ale_IBU,ncol=2)
+Stats_IPA_ABV
+Stats_IPA_IBU
+Stats_Ale_ABV
+Stats_Ale_IBU
+```
+
+The above plots and values show IPA's have higher ABV and IBU values than the Ale's. This indicates that IPA's are more alcoholic and more bitter than the Ale's in general.
+
+
+
+#ABV_IBU with respect to IPAs and Ale's using kNN
+```{r, ABV_IBU with respect to IPAs and Ale using kNN}
+#Checking to see number of rows in each IPA and Ale data
+nrow(Data_IPA)
+nrow(Data_Ale)
+
+Data_IPA$Style1 <- "IPA" #Adding Style1 column for IPA style beer as IPA
+Data_Ale$Style1 <- "Ale" #Adding Style1 column for Ale style beer as Ale
+Data_IPA$Style1 <- as.factor(Data_IPA$Style1)
+Data_Ale$Style1 <- as.factor(Data_Ale$Style1)
+
+#Combining the IPA and Ale data to create a training set
+Data_Ale_IPA <- rbind(Data_IPA, Data_Ale)
+
+#Plot of all IPA and Ale data
+Data_Ale_IPA %>% ggplot(aes(x=IBU, y=ABV)) + geom_point(aes(colour=Style1)) +
+  theme(axis.title.x = element_text(size=12, face="bold", colour = "black"),    
+axis.text.x = element_text(size=12, face="bold", colour = "black"),
+axis.title.y = element_text(size=12, face="bold", colour = "black"),
+axis.text.y = element_text(size=12, face="bold", colour = "black"),
+strip.text.x = element_text(size = 10, face="bold", colour = "black" ),
+strip.text.y = element_text(size = 10, face="bold", colour = "black"),
+) + ggtitle("ABV v. IBU based on Style") + labs(colour = "Style")
+
+# kNN approach for 500 dataset iterations and 1-30 k values
+iterations = 500 # number of iterations to test the k value
+numks = 30      # number of k used in the iterations
+splitPerc = .7 # split percentage assumed from the total dataset
+masterAcc = matrix(nrow = iterations, ncol = numks)
+set.seed(6)
+trainIndices = sample(1:dim(Data_Ale_IPA)[1],round(splitPerc * dim(Data_Ale_IPA)[1]))
+beer_train = Data_Ale_IPA[trainIndices,]
+beer_test = Data_Ale_IPA[-trainIndices,]
+#columns 4 and 5 represent the ABV and IBU values 
+classifications = knn(beer_train[,c(4,5)],beer_test[,c(4,5)],beer_train$Style1, prob = TRUE, k = 5)
+CM = confusionMatrix(table(classifications,beer_test$Style1))
+classifications
+CM
+#Above Confusion Matrix and Statistics show a accuracy of ~80%
+for(j in 1:iterations)
+{
+  accs = data.frame(accuracy = numeric(30), k = numeric(30))
+  trainIndices = sample(1:dim(Data_Ale_IPA)[1],round(splitPerc * dim(Data_Ale_IPA)[1]))
+  beer_train = Data_Ale_IPA[trainIndices,]
+  beer_test = Data_Ale_IPA[-trainIndices,]
+  for(i in 1:numks)
+  {
+    classifications = knn(beer_train[,c(4,5)],beer_test[,c(4,5)],beer_train$Style1, prob = TRUE, k = i)
+    table(classifications,beer_test$Style1)
+    CM = confusionMatrix(table(classifications,beer_test$Style1))
+    masterAcc[j,i] = CM$overall[1]
+  }
+}
+MeanAcc = colMeans(masterAcc)
+p = ggplot(mapping = aes(x = seq(1,numks,1), y = MeanAcc)) + geom_line() + ggtitle("Mean Accuracy v. Number of k") + xlab('k values')
+ggplotly(p)
+```
+
+
+
+Considering the IPA and Ale data using 70%/30% split and shuffling test and training data 500 times, with K assigned from 1 to 30 during each shuffling, we can achieve the highest mean accuracy 80.0% when K=5.
+
+# ABV_IBU with respect to IPAs and Ale's using Naive Bayes
+```{r, ABV_IBU with respect to IPAs and Ale using Naive Bayes}
+iterations = 500
+masterAcc = matrix(nrow = iterations)
+masterSen = matrix(nrow = iterations)
+masterSpec = matrix(nrow = iterations)
+splitPerc = .7 
+for(j in 1:iterations)
+{
+  
+  trainIndices = sample(1:dim(Data_Ale_IPA)[1],round(splitPerc * dim(Data_Ale_IPA)[1]))
+  beer_train = Data_Ale_IPA[trainIndices,]
+  beer_test = Data_Ale_IPA[-trainIndices,]
+  model = naiveBayes(beer_train[,c(4,5)],as.factor(beer_train$Style1),laplace = 1)
+  table(predict(model,beer_test[,c(4,5)]),as.factor(beer_test$Style1))
+  CM = confusionMatrix(table(predict(model,beer_test[,c(4,5)]),as.factor(beer_test$Style1)))
+  masterAcc[j] = CM$overall[1]
+  masterSen[j] = CM$byClass[1]
+  masterSpec[j] = CM$byClass[2]
+}
+MeanAcc = colMeans(masterAcc)
+MeanSen = colMeans(masterSen)
+MeanSpec = colMeans(masterSpec)
+MeanAcc
+MeanSen
+MeanSpec
+```
+
+
+Naive Bayes model run for 500 iterations and 70/30% split gave the Mean accuracy (~79%), Mean sensitivity (~67%) and Mean specificity (~86%) as shown from the values above. The data is close match with kNN model.
+
+Please go through the presentation final conclusion for the entire data.
+
