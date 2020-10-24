@@ -8,5 +8,7 @@ The folder contains all data for Case study-01 for MSDS 6306.
         3. Alaska.csv - input for Alaska state  
         4. long_lat_statecenter.csv - input for state center locations  
 4. CaseStudy-01_FinalPresentation.pptx contains the output presentation for the casestudy.
+5. YouTube video link is available in https://youtu.be/6HDO2Y-cEbQ.  
+
 
 
